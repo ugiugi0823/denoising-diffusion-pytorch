@@ -31,6 +31,8 @@ from denoising_diffusion_pytorch.fid_evaluation import FIDEvaluation
 
 from denoising_diffusion_pytorch.version import __version__
 
+
+
 # constants
 
 ModelPrediction =  namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
@@ -973,6 +975,8 @@ class Trainer(object):
             self.accelerator.scaler.load_state_dict(data['scaler'])
 
     def train(self):
+        wandb.init(project="Diffusion_landscape", entity="ugiugi0823")
+        wandb.run.name = "Diffusion_wandb_test"
         accelerator = self.accelerator
         device = accelerator.device
 
@@ -989,6 +993,7 @@ class Trainer(object):
                         loss = self.model(data)
                         loss = loss / self.gradient_accumulate_every
                         total_loss += loss.item()
+                        wandb.log({"loss": loss.item()})
 
                     self.accelerator.backward(loss)
 
@@ -1019,7 +1024,7 @@ class Trainer(object):
                         utils.save_image(all_images, str(self.results_folder / f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
 
                         # whether to calculate fid
-
+                            
                         if self.calculate_fid:
                             fid_score = self.fid_scorer.fid_score()
                             accelerator.print(f'fid_score: {fid_score}')
@@ -1030,7 +1035,7 @@ class Trainer(object):
                             self.save("latest")
                         else:
                             self.save(milestone)
-
+                        wandb.log({"fid_score": fid_score})
                 pbar.update(1)
 
         accelerator.print('training complete')

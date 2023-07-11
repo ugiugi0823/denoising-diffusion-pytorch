@@ -981,6 +981,7 @@ class Trainer(object):
         device = accelerator.device
 
         with tqdm(initial = self.step, total = self.train_num_steps, disable = not accelerator.is_main_process) as pbar:
+            print('total', total)
 
             while self.step < self.train_num_steps:
 

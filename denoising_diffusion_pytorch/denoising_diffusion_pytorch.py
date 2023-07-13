@@ -669,6 +669,8 @@ class GaussianDiffusion(nn.Module):
         imgs = [img]
 
         x_start = None
+        
+        print('DDIM 이여유')
 
         for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
             time_cond = torch.full((batch,), time, device = device, dtype = torch.long)
@@ -796,7 +798,7 @@ class Dataset(Dataset):
         self,
         folder,
         image_size,
-        exts = ['jpg', 'jpeg', 'png', 'tiff'],
+        exts = ['jpg', 'jpeg', 'png', 'tiff', 'bmp'],
         augment_horizontal_flip = False,
         convert_image_to = None
     ):
@@ -816,11 +818,12 @@ class Dataset(Dataset):
         ])
 
     def __len__(self):
+        # print('데이터 경로 갯수,', len(self.paths))
         return len(self.paths)
 
     def __getitem__(self, index):
         path = self.paths[index]
-        img = Image.open(path)
+        img = Image.open(path).convert('RGB')
         return self.transform(img)
 
 # trainer class
@@ -835,13 +838,14 @@ class Trainer(object):
         gradient_accumulate_every = 1,
         augment_horizontal_flip = True,
         train_lr = 1e-4,
-        train_num_steps = 100000,
+        train_num_steps = 10000,
         ema_update_every = 10,
         ema_decay = 0.995,
         adam_betas = (0.9, 0.99),
         save_and_sample_every = 1000,
+        # 총 25개를 저장할거여!
         num_samples = 25,
-        results_folder = './results',
+        results_folder = './results_wta',
         amp = False,
         mixed_precision_type = 'fp16',
         split_batches = True,
@@ -849,7 +853,7 @@ class Trainer(object):
         calculate_fid = True,
         inception_block_idx = 2048,
         max_grad_norm = 1.,
-        num_fid_samples = 50000,
+        num_fid_samples = 40,
         save_best_and_latest_only = False
     ):
         super().__init__()
@@ -870,6 +874,7 @@ class Trainer(object):
 
         assert has_int_squareroot(num_samples), 'number of samples must have an integer square root'
         self.num_samples = num_samples
+
         self.save_and_sample_every = save_and_sample_every
         if save_best_and_latest_only:
             assert calculate_fid, "`calculate_fid` must be True to provide a means for model evaluation for `save_best_and_latest_only`."
@@ -888,7 +893,8 @@ class Trainer(object):
 
         self.ds = Dataset(folder, self.image_size, augment_horizontal_flip = augment_horizontal_flip, convert_image_to = convert_image_to)
         dl = DataLoader(self.ds, batch_size = train_batch_size, shuffle = True, pin_memory = True, num_workers = cpu_count())
-
+        print('ₒ₍₊˒₃˓₎ₒ▁▂▃▅▆▓▒░✩⃛'*10)
+        print('데이터 로더의 길이는',len(dl))
         dl = self.accelerator.prepare(dl)
         self.dl = cycle(dl)
 
@@ -975,19 +981,29 @@ class Trainer(object):
             self.accelerator.scaler.load_state_dict(data['scaler'])
 
     def train(self):
-        wandb.init(project="Diffusion_landscape", entity="ugiugi0823")
-        wandb.run.name = "Diffusion_wandb_test"
+        wandb.init(project="Diffusion_wta", entity="ugiugi")
+        wandb.run.name = "Diffusion_wandb_wta"
         accelerator = self.accelerator
         device = accelerator.device
 
         with tqdm(initial = self.step, total = self.train_num_steps, disable = not accelerator.is_main_process) as pbar:
-            print('total', total)
-
+            
+            print('시이이이이작!!!')
+            
+            # train_num_steps 을 넘기기 전까지 실행하는 거야 > 10000 번?
             while self.step < self.train_num_steps:
+                
+                if self.step % 100 == 0:
+                    pbar.set_description(f'Epoch >>  {self.step}' )
+                    
+                
+                
 
                 total_loss = 0.
 
                 for _ in range(self.gradient_accumulate_every):
+                    
+                    
                     data = next(self.dl).to(device)
 
                     with self.accelerator.autocast():
@@ -999,7 +1015,8 @@ class Trainer(object):
                     self.accelerator.backward(loss)
 
                 accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-                pbar.set_description(f'loss: {total_loss:.4f}')
+                pbar.set_postfix(loss = total_loss)
+                # pbar.set_description(f'loss: {total_loss:.4f}')
 
                 accelerator.wait_for_everyone()
 
@@ -1010,12 +1027,19 @@ class Trainer(object):
 
                 self.step += 1
                 if accelerator.is_main_process:
+                    
                     self.ema.update()
 
+                    # self.save_and_sample_every = 100 100 번 마다 뭘 진행해? > 추론을 진행해
                     if self.step != 0 and self.step % self.save_and_sample_every == 0:
+                        print('(^^)'*37)
+                        print('(^^)'*37)
+                        
+                        
                         self.ema.ema_model.eval()
 
                         with torch.inference_mode():
+                            
                             milestone = self.step // self.save_and_sample_every
                             batches = num_to_groups(self.num_samples, self.batch_size)
                             all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n), batches))
@@ -1027,16 +1051,19 @@ class Trainer(object):
                         # whether to calculate fid
                             
                         if self.calculate_fid:
+                            print('fid 구하는거 보고 싶어유!')
                             fid_score = self.fid_scorer.fid_score()
+                            wandb.log({"lfid_score": fid_score})
                             accelerator.print(f'fid_score: {fid_score}')
                         if self.save_best_and_latest_only:
+                            
                             if self.best_fid > fid_score:
                                 self.best_fid = fid_score
                                 self.save("best")
                             self.save("latest")
                         else:
                             self.save(milestone)
-                        wandb.log({"fid_score": fid_score})
                 pbar.update(1)
+                       
 
         accelerator.print('training complete')
